@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const pkg = require('../../package.json');
+const pkg = require('../package.json');
 
 const { checkout } = require('../Branching/index.js');
 
