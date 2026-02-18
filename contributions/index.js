@@ -1,6 +1,6 @@
 /**
  * dep - Modern version control.
- * Module: Contributions (v0.1.6)
+ * Module: Contributions (v0.1.7)
  */
 
 const fs = require('fs');
@@ -155,67 +155,78 @@ async function pull () {
  * Uploads local JSON diffs that do not exist in the remote history.
  */
 
-async function push () {
-  const depPath = path.join(process.cwd(), '.dep');
-  const depJson = JSON.parse(fs.readFileSync(path.join(depPath, 'dep.json'), 'utf8'));
+ async function push() {
+   const depPath = path.join(process.cwd(), '.dep');
+   const depJson = JSON.parse(fs.readFileSync(path.join(depPath, 'dep.json'), 'utf8'));
 
-  if (!depJson.remote) {
-    throw new Error('Remote URL not configured.');
-  }
+   if (!depJson.remote) {
+     throw new Error('Remote URL not configured.');
+   }
 
-  const branch = depJson.active.branch;
-  const token = depJson.configuration.personalAccessToken;
+   const branch = depJson.active.branch;
+   const token = depJson.configuration.personalAccessToken;
+   const remoteParts = depJson.remote.split('/');
+   const repo = remoteParts.pop();
+   const handle = remoteParts.pop();
 
-  const remoteParts = depJson.remote.split('/');
-  const repo = remoteParts.pop();
-  const handle = remoteParts.pop();
+   const localManifest = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, 'manifest.json'), 'utf8'));
 
-  const localManifest = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, 'manifest.json'), 'utf8'));
+   const response = await fetch(`${DEP_HOST}/manifest`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       type: 'history',
+       handle,
+       repo,
+       branch,
 
-  const response = await fetch(`${DEP_HOST}/manifest`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      type: 'history',
-      handle,
-      repo,
-      branch,
+       ...(token && { personalAccessToken: token })
+     })
+   });
 
-      ...(token && { personalAccessToken: token })
-    })
-  });
+   const remoteManifest = await response.json();
+   const missingCommits = localManifest.commits.filter(hash => !remoteManifest.commits.includes(hash));
 
-  const remoteManifest = await response.json();
+   if (missingCommits.length === 0) {
+     return 'Everything up to date.';
+   }
 
-  const missingCommits = localManifest.commits.filter(hash => !remoteManifest.commits.includes(hash));
+   let rootData = null;
 
-  if (missingCommits.length === 0) {
-    return 'Everything up to date.';
-  }
+   if (remoteManifest.commits.length === 0) {
+     const rootManifestPath = path.join(depPath, 'root/manifest.json');
+     if (fs.existsSync(rootManifestPath)) {
+       rootData = JSON.parse(fs.readFileSync(rootManifestPath, 'utf8'));
+     }
+   }
 
-  for (const commitHash of missingCommits) {
-    const commitData = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, `${commitHash}.json`), 'utf8'));
+   for (const commitHash of missingCommits) {
+     const commitData = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, `${commitHash}.json`), 'utf8'));
 
-    await fetch(`${DEP_HOST}/push`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        handle,
-        repo,
-        branch,
-        commit: commitData,
+     await fetch(`${DEP_HOST}/push`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({
+         handle,
+         repo,
+         branch,
+         commit: commitData,
 
-        ...(token && { personalAccessToken: token })
-      })
-    });
-  }
+         ...(rootData && { root: rootData }),
 
-  const remoteManifestPath = path.join(depPath, 'history/remote', branch, 'manifest.json');
+         ...(token && { personalAccessToken: token })
+       })
+     });
 
-  fs.writeFileSync(remoteManifestPath, JSON.stringify(localManifest, null, 2));
+     rootData = null;
+   }
 
-  return `Pushed ${missingCommits.length} commits to remote.`;
-}
+   const remoteManifestPath = path.join(depPath, 'history/remote', branch, 'manifest.json');
+
+   fs.writeFileSync(remoteManifestPath, JSON.stringify(localManifest, null, 2));
+
+   return `Pushed ${missingCommits.length} commits (including root state if applicable) to remote.`;
+ }
 
 module.exports = {
   __libraryVersion: pkg.version,
