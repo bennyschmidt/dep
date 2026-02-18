@@ -1,6 +1,6 @@
 /**
- * dep - Efficient version control.
- * Module: Changes (v0.0.8)
+ * dep - Modern version control.
+ * Module: Changes (v0.1.0)
  */
 
 const fs = require('fs');
@@ -113,7 +113,7 @@ function diff () {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.8',
+  __libraryVersion: '0.1.0',
   __libraryAPIName: 'Changes',
   log,
   diff

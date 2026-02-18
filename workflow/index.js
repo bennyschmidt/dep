@@ -1,6 +1,6 @@
 /**
- * dep - Efficient version control.
- * Module: Workflow (v0.0.8)
+ * dep - Modern version control.
+ * Module: Workflow (v0.1.0)
  */
 
 const fs = require('fs');
@@ -69,7 +69,7 @@ function status() {
  * @returns {string} Confirmation message.
  */
 
- function add(targetPath) {
+ function add (targetPath) {
    const root = process.cwd();
    const depPath = path.join(root, '.dep');
    const stagePath = path.join(depPath, 'stage.json');
@@ -176,7 +176,7 @@ function commit (message) {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.8',
+  __libraryVersion: '0.1.0',
   __libraryAPIName: 'Workflow',
   status,
   add,

@@ -1,6 +1,6 @@
 /**
- * dep - Efficient version control.
- * Module: Setup (v0.0.8)
+ * dep - Modern version control.
+ * Module: Setup (v0.1.0)
  */
 
 const fs = require('fs');
