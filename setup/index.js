@@ -1,6 +1,6 @@
 /**
  * dep - Efficient version control.
- * Module: Setup (v0.0.4)
+ * Module: Setup (v0.0.5)
  */
 
 const fs = require('fs');
@@ -19,7 +19,7 @@ function init (directoryPath = process.cwd()) {
 
   const folders = [
     '',
-    'data',
+    'root',
     'history',
     'history/local',
     'history/local/main',
@@ -40,13 +40,13 @@ function init (directoryPath = process.cwd()) {
   }
 
   const files = fs.readdirSync(directoryPath).filter(f => f !== '.dep');
-  const dataManifest = { files: [] };
+  const rootManifest = { files: [] };
 
   for (const file of files) {
     const fullPath = path.join(directoryPath, file);
 
     if (fs.lstatSync(fullPath).isFile()) {
-      dataManifest.files.push({
+      rootManifest.files.push({
         path: file,
         content: fs.readFileSync(fullPath, 'utf8')
       });
@@ -54,8 +54,8 @@ function init (directoryPath = process.cwd()) {
   }
 
   fs.writeFileSync(
-    path.join(depDirectory, 'data/manifest.json'),
-    JSON.stringify(dataManifest, null, 2)
+    path.join(depDirectory, 'root/manifest.json'),
+    JSON.stringify(rootManifest, null, 2)
   );
 
   fs.writeFileSync(
@@ -100,11 +100,11 @@ async function clone (repoSlug) {
   const depJson = JSON.parse(fs.readFileSync(path.join(depPath, 'dep.json'), 'utf8'));
   const token = depJson.configuration.personalAccessToken;
 
-  const dataRes = await fetch(`${DEP_HOST}/manifest`, {
+  const rootRes = await fetch(`${DEP_HOST}/manifest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      type: 'data',
+      type: 'root',
       handle,
       repo,
       branch: 'main',
@@ -113,15 +113,15 @@ async function clone (repoSlug) {
     })
   });
 
-  const dataManifest = await dataRes.json();
+  const rootManifest = await rootRes.json();
 
-  if (dataManifest.files) {
-    for (const file of dataManifest.files) {
-      const internalDataPath = path.join(depPath, 'data', file.path);
+  if (rootManifest.files) {
+    for (const file of rootManifest.files) {
+      const internalRootPath = path.join(depPath, 'root', file.path);
       const workingPath = path.join(targetPath, file.path);
 
-      fs.mkdirSync(path.dirname(internalDataPath), { recursive: true });
-      fs.writeFileSync(internalDataPath, file.content);
+      fs.mkdirSync(path.dirname(internalRootPath), { recursive: true });
+      fs.writeFileSync(internalRootPath, file.content);
       fs.writeFileSync(workingPath, file.content);
     }
   }
