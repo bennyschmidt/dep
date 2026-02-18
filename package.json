@@ -1,6 +1,6 @@
 {
   "name": "dep-vcs",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Efficient version control.",
   "main": "index.js",
   "bin": {

@@ -1,18 +1,17 @@
 /**
- * dep - Simple version control
- * Module: Setup (v0.0.1)
+ * dep - Efficient version control.
+ * Module: Setup (v0.0.4)
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const pkg = require('../package.json');
+
 const DEP_HOST = pkg.depConfig.host || 'http://localhost:1337';
 
 /**
  * Initializes the local .dep directory structure.
- * @param {string} directoryPath - The path where the repository should be initialized.
- * @returns {string} A message indicating the result of the operation.
  */
 
 function init (directoryPath = process.cwd()) {
@@ -41,13 +40,11 @@ function init (directoryPath = process.cwd()) {
   }
 
   const files = fs.readdirSync(directoryPath).filter(f => f !== '.dep');
-
-  const dataManifest = {
-    files: []
-  };
+  const dataManifest = { files: [] };
 
   for (const file of files) {
     const fullPath = path.join(directoryPath, file);
+
     if (fs.lstatSync(fullPath).isFile()) {
       dataManifest.files.push({
         path: file,
@@ -61,24 +58,15 @@ function init (directoryPath = process.cwd()) {
     JSON.stringify(dataManifest, null, 2)
   );
 
-  const historyManifest = {
-    commits: []
-  };
-
   fs.writeFileSync(
     path.join(depDirectory, 'history/local/main/manifest.json'),
-    JSON.stringify(historyManifest, null, 2)
+    JSON.stringify({ commits: [] }, null, 2)
   );
 
   const depFile = {
-    active: {
-      branch: 'main',
-      parent: null
-    },
+    active: { branch: 'main', parent: null },
     remote: '',
-    configuration: {
-      userName: ''
-    }
+    configuration: { handle: '', personalAccessToken: '' }
   };
 
   fs.writeFileSync(
@@ -90,9 +78,7 @@ function init (directoryPath = process.cwd()) {
 }
 
 /**
- * Clones a repository, populates "data", and replays "history".
- * @param {string} repoSlug - The "userName/repoName" slug.
- * @returns {Promise<string>}
+ * Clones a repository by fetching manifests and commits via POST.
  */
 
 async function clone (repoSlug) {
@@ -100,8 +86,8 @@ async function clone (repoSlug) {
     throw new Error('A valid slug is required.');
   }
 
-  const [userName, repoName] = repoSlug.split('/');
-  const targetPath = path.join(process.cwd(), repoName);
+  const [handle, repo] = repoSlug.split('/');
+  const targetPath = path.join(process.cwd(), repo);
   const depPath = path.join(targetPath, '.dep');
 
   if (fs.existsSync(targetPath)) {
@@ -111,7 +97,22 @@ async function clone (repoSlug) {
   fs.mkdirSync(targetPath);
   init(targetPath);
 
-  const dataRes = await fetch(`${DEP_HOST}/${userName}/${repoName}/data/manifest.json`);
+  const depJson = JSON.parse(fs.readFileSync(path.join(depPath, 'dep.json'), 'utf8'));
+  const token = depJson.configuration.personalAccessToken;
+
+  const dataRes = await fetch(`${DEP_HOST}/manifest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'data',
+      handle,
+      repo,
+      branch: 'main',
+
+      ...(token && { personalAccessToken: token })
+    })
+  });
+
   const dataManifest = await dataRes.json();
 
   if (dataManifest.files) {
@@ -125,13 +126,36 @@ async function clone (repoSlug) {
     }
   }
 
-  const historyUrl = `${DEP_HOST}/${userName}/${repoName}/history/remote/main/manifest.json`;
-  const historyRes = await fetch(historyUrl);
+  const historyRes = await fetch(`${DEP_HOST}/manifest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'history',
+      handle,
+      repo,
+      branch: 'main',
+
+      ...(token && { personalAccessToken: token })
+    })
+  });
+
   const historyManifest = await historyRes.json();
 
   if (historyManifest.commits) {
     for (const commitHash of historyManifest.commits) {
-      const commitRes = await fetch(`${DEP_HOST}/${userName}/${repoName}/history/remote/main/${commitHash}.json`);
+      const commitRes = await fetch(`${DEP_HOST}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handle,
+          repo,
+          branch: 'main',
+          hash: commitHash,
+
+          ...(token && { personalAccessToken: token })
+        })
+      });
+
       const commitDiff = await commitRes.json();
 
       for (const filePath of Object.keys(commitDiff.changes)) {
@@ -139,23 +163,19 @@ async function clone (repoSlug) {
         const changeSet = commitDiff.changes[filePath];
 
         if (Array.isArray(changeSet)) {
-          let currentContent = fs.existsSync(fullPath)
-            ? fs.readFileSync(fullPath, 'utf8')
-            : '';
+          let currentContent = fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf8') : '';
 
           for (const operation of changeSet) {
             if (operation.type === 'insert') {
-              currentContent = `${currentContent.slice(0, operation.position)}${operation.content}${currentContent.slice(operation.position)}`;
+              currentContent = currentContent.slice(0, operation.position) + operation.content + currentContent.slice(operation.position);
             } else if (operation.type === 'delete') {
-              currentContent = `${currentContent.slice(0, operation.position)}${currentContent.slice(operation.position + operation.length)}`;
+              currentContent = currentContent.slice(0, operation.position) + currentContent.slice(operation.position + operation.length);
             }
           }
 
           fs.writeFileSync(fullPath, currentContent);
         } else if (changeSet.type === 'deleteFile') {
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
+          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
         } else if (changeSet.type === 'createFile') {
           fs.writeFileSync(fullPath, changeSet.content || '');
         }
@@ -186,6 +206,7 @@ function config (key, value) {
 
   if (key && value !== undefined) {
     manifest.configuration[key] = value;
+
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   }
 

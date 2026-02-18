@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * dep - Simple version control
- * CLI Binary (v0.0.1)
+ * dep - Efficient version control.
+ * CLI (v0.0.4)
  */
 
 const dep = require('../index.js');

@@ -1,12 +1,12 @@
 /**
- * dep - Simple version control
- * Module: Caches (v0.0.1)
+ * dep - Efficient version control.
+ * Module: Caches (v0.0.4)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const { checkout } = require('../Branching/index.js');
+const { checkout } = require('../branching/index.js');
 
 /**
  * Moves stage.json to a cache folder, or restores the most recent stash.
@@ -154,7 +154,7 @@ function rm (filePath) {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.1',
+  __libraryVersion: '0.0.4',
   __libraryAPIName: 'Caches',
   stash,
   reset,

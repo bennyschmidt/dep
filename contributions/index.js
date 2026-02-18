@@ -1,21 +1,19 @@
 /**
- * dep - Simple version control
- * Module: Contributions (v0.0.1)
+ * dep - Efficient version control.
+ * Module: Contributions (v0.0.4)
  */
 
 const fs = require('fs');
 const path = require('path');
-const pkg = require('../package.json');
 
-const { checkout } = require('../Branching/index.js');
+const pkg = require('../package.json');
+const { checkout } = require('../branching/index.js');
 
 const DEP_HOST = pkg.depConfig.host || 'http://localhost:1337';
 
 /**
  * Configures the single URL endpoint in dep.json for synchronization.
- * Supports full URLs or "userName/repoName" slugs.
- * @param {string} input - The remote endpoint or slug.
- * @returns {string} The current remote URL.
+ * Supports full URLs or "handle/repo" slugs.
  */
 
 function remote (input) {
@@ -31,7 +29,7 @@ function remote (input) {
     let finalUrl = input;
 
     if (input.includes('/') && !input.startsWith('http')) {
-      finalUrl = `${DEP_HOST}/code/${input}`;
+      finalUrl = `${DEP_HOST}/${input}`;
     }
 
     manifest.remote = finalUrl;
@@ -42,8 +40,7 @@ function remote (input) {
 }
 
 /**
- * Downloads JSON diff files from the remote server into history/remote.
- * @returns {Promise<string>} Result message.
+ * Downloads JSON diff files from the remote server via POST.
  */
 
 async function fetchRemote () {
@@ -55,20 +52,50 @@ async function fetchRemote () {
   }
 
   const branch = depJson.active.branch;
+  const token = depJson.configuration.personalAccessToken;
+
+  const remoteParts = depJson.remote.split('/');
+  const repo = remoteParts.pop();
+  const handle = remoteParts.pop();
+
   const remoteBranchPath = path.join(depPath, 'history/remote', branch);
 
   if (!fs.existsSync(remoteBranchPath)) {
     fs.mkdirSync(remoteBranchPath, { recursive: true });
   }
 
-  const response = await fetch(`${depJson.remote}/history/remote/${branch}/manifest.json`);
+  const response = await fetch(`${DEP_HOST}/manifest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'history',
+      handle,
+      repo,
+      branch,
+
+      ...(token && { personalAccessToken: token })
+    })
+  });
+
   const remoteManifest = await response.json();
 
   for (const commitHash of remoteManifest.commits) {
     const commitFilePath = path.join(remoteBranchPath, `${commitHash}.json`);
 
     if (!fs.existsSync(commitFilePath)) {
-      const commitResponse = await fetch(`${depJson.remote}/history/remote/${branch}/${commitHash}.json`);
+      const commitResponse = await fetch(`${DEP_HOST}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handle,
+          repo,
+          branch,
+          hash: commitHash,
+
+          ...(token && { personalAccessToken: token })
+        })
+      });
+
       const commitDiff = await commitResponse.json();
 
       fs.writeFileSync(commitFilePath, JSON.stringify(commitDiff, null, 2));
@@ -137,9 +164,27 @@ async function push () {
   }
 
   const branch = depJson.active.branch;
+  const token = depJson.configuration.personalAccessToken;
+
+  const remoteParts = depJson.remote.split('/');
+  const repo = remoteParts.pop();
+  const handle = remoteParts.pop();
+
   const localManifest = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, 'manifest.json'), 'utf8'));
 
-  const response = await fetch(`${depJson.remote}/history/remote/${branch}/manifest.json`);
+  const response = await fetch(`${DEP_HOST}/manifest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'history',
+      handle,
+      repo,
+      branch,
+
+      ...(token && { personalAccessToken: token })
+    })
+  });
+
   const remoteManifest = await response.json();
 
   const missingCommits = localManifest.commits.filter(hash => !remoteManifest.commits.includes(hash));
@@ -151,12 +196,16 @@ async function push () {
   for (const commitHash of missingCommits) {
     const commitData = JSON.parse(fs.readFileSync(path.join(depPath, 'history/local', branch, `${commitHash}.json`), 'utf8'));
 
-    await fetch(`${depJson.remote}/source/push`, {
+    await fetch(`${DEP_HOST}/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        branch: branch,
-        commit: commitData
+        handle,
+        repo,
+        branch,
+        commit: commitData,
+
+        ...(token && { personalAccessToken: token })
       })
     });
   }
