@@ -40,8 +40,8 @@ async function run() {
           untracked
         } = dep.status();
 
-        console.log(`On branch ${s.activeBranch}`);
-        console.log(`Last commit: ${s.lastCommit || 'None'}`);
+        console.log(`On branch ${activeBranch}`);
+        console.log(`Last commit: ${lastCommit || 'None'}`);
 
         if (staged.length > 0) {
           console.log('\nChanges to be committed:');
