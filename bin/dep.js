@@ -82,7 +82,7 @@ async function run() {
         const isDelete = deleteFlags.includes(args[0]);
         const branchName = isDelete ? args[1] : args[0];
 
-        const branches = dep.branch({ name: branchName, del: isDelete });
+        const branches = dep.branch({ name: branchName, isDelete });
 
         if (Array.isArray(branches)) {
           for (const b of branches) console.log(b);

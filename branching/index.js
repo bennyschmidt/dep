@@ -19,7 +19,9 @@ const getStateByHash = require('../utils/getStateByHash');
    const depJsonPath = path.join(depPath, 'dep.json');
 
    if (!name) {
-     return fs.readdirSync(localHistoryPath);
+     return fs.readdirSync(localHistoryPath).filter(f => {
+       return f !== '.DS_Store' && f !== 'desktop.ini' && f !== 'thumbs.db';
+     });
    }
 
    const branchLocalPath = path.join(localHistoryPath, name);
