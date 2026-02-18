@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const pkg = require('../../package.json');
+const pkg = require('../package.json');
 const DEP_HOST = pkg.depConfig.host || 'http://localhost:1337';
 
 /**
