@@ -1,6 +1,6 @@
 /**
  * dep - Efficient version control.
- * Module: Branching (v0.0.7)
+ * Module: Branching (v0.0.8)
  */
 
 const fs = require('fs');
@@ -11,80 +11,109 @@ const getStateByHash = require('../utils/getStateByHash');
 /**
  * Lists, creates, or deletes branches.
  */
- 
-function branch (name) {
-  const depPath = path.join(process.cwd(), '.dep');
-  const localHistoryPath = path.join(depPath, 'history/local');
-  const remoteHistoryPath = path.join(depPath, 'history/remote');
 
-  if (!name) {
-    return fs.readdirSync(localHistoryPath);
-  }
+ function branch ({ name, isDelete = false } = {}) {
+   const depPath = path.join(process.cwd(), '.dep');
+   const localHistoryPath = path.join(depPath, 'history/local');
+   const remoteHistoryPath = path.join(depPath, 'history/remote');
+   const depJsonPath = path.join(depPath, 'dep.json');
 
-  const branchLocalPath = path.join(localHistoryPath, name);
-  const branchRemotePath = path.join(remoteHistoryPath, name);
+   if (!name) {
+     return fs.readdirSync(localHistoryPath);
+   }
 
-  if (fs.existsSync(branchLocalPath)) {
-    throw new Error(`Branch "${name}" already exists locally.`);
-  }
+   const branchLocalPath = path.join(localHistoryPath, name);
+   const branchRemotePath = path.join(remoteHistoryPath, name);
 
-  fs.mkdirSync(branchLocalPath, { recursive: true });
+   if (isDelete) {
+     if (!fs.existsSync(branchLocalPath)) {
+       throw new Error(`Local branch "${name}" does not exist.`);
+     }
 
-  fs.writeFileSync(
-    path.join(branchLocalPath, 'manifest.json'),
-    JSON.stringify({ commits: [] }, null, 2)
-  );
+     const depJson = JSON.parse(fs.readFileSync(depJsonPath, 'utf8'));
 
-  if (!fs.existsSync(branchRemotePath)) {
-    fs.mkdirSync(branchRemotePath, { recursive: true });
+     if (depJson.active.branch === name) {
+       throw new Error(`Local branch "${name}" is in use and can't be deleted right now.`);
+     }
 
-    fs.writeFileSync(
-      path.join(branchRemotePath, 'manifest.json'),
-      JSON.stringify({ commits: [] }, null, 2)
-    );
-  }
+     fs.rmSync(branchLocalPath, { recursive: true, force: true });
 
-  return `Created branch "${name}".`;
-}
+     if (fs.existsSync(branchRemotePath)) {
+       fs.rmSync(branchRemotePath, { recursive: true, force: true });
+     }
+
+     return `Deleted local branch "${name}".`;
+   }
+
+   if (fs.existsSync(branchLocalPath)) {
+     throw new Error(`Local branch "${name}" already exists.`);
+   }
+
+   fs.mkdirSync(branchLocalPath, { recursive: true });
+
+   fs.writeFileSync(
+     path.join(branchLocalPath, 'manifest.json'),
+     JSON.stringify({ commits: [] }, null, 2)
+   );
+
+   if (!fs.existsSync(branchRemotePath)) {
+     fs.mkdirSync(branchRemotePath, { recursive: true });
+
+     fs.writeFileSync(
+       path.join(branchRemotePath, 'manifest.json'),
+       JSON.stringify({ commits: [] }, null, 2)
+     );
+   }
+
+   return `Created branch "${name}".`;
+ }
 
 /**
  * Updates the active pointer and reconstructs the working directory.
  */
 
-function checkout (branchName) {
-  const depPath = path.join(process.cwd(), '.dep');
-  const depJsonPath = path.join(depPath, 'dep.json');
-  const branchPath = path.join(depPath, 'history/local', branchName);
+ function checkout (branchName) {
+   const depPath = path.join(process.cwd(), '.dep');
+   const depJsonPath = path.join(depPath, 'dep.json');
+   const branchPath = path.join(depPath, 'history/local', branchName);
 
-  if (!fs.existsSync(branchPath)) {
-    branch(branchName);
-  }
+   if (!fs.existsSync(branchPath)) {
+     branch(branchName);
+   }
 
-  const depJson = JSON.parse(fs.readFileSync(depJsonPath, 'utf8'));
-  const targetState = getStateByHash(branchName, null);
+   const depJson = JSON.parse(fs.readFileSync(depJsonPath, 'utf8'));
+   const targetState = getStateByHash(branchName, null);
+   const currentState = getStateByHash(depJson.active.branch, depJson.active.parent) || {};
 
-  const currentFiles = fs.readdirSync(process.cwd()).filter(f => f !== '.dep');
+   for (const filePath of Object.keys(currentState)) {
+     if (!targetState[filePath]) {
+       const fullPath = path.join(process.cwd(), filePath);
 
-  for (const f of currentFiles) {
-    fs.rmSync(path.join(process.cwd(), f), { recursive: true, force: true });
-  }
+       if (fs.existsSync(fullPath)) {
+         fs.rmSync(fullPath, { recursive: true, force: true });
+       }
+     }
+   }
 
-  for (const [filePath, content] of Object.entries(targetState)) {
-    const fullPath = path.join(process.cwd(), filePath);
+   for (const [filePath, content] of Object.entries(targetState)) {
+     const fullPath = path.join(process.cwd(), filePath);
 
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, content);
-  }
+     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+     fs.writeFileSync(fullPath, content);
+   }
 
-  const manifest = JSON.parse(fs.readFileSync(path.join(branchPath, 'manifest.json'), 'utf8'));
+   const manifest = JSON.parse(fs.readFileSync(path.join(branchPath, 'manifest.json'), 'utf8'));
 
-  depJson.active.branch = branchName;
-  depJson.active.parent = manifest.commits.length > 0 ? manifest.commits[manifest.commits.length - 1] : null;
+   depJson.active.branch = branchName;
 
-  fs.writeFileSync(depJsonPath, JSON.stringify(depJson, null, 2));
+   depJson.active.parent = manifest.commits.length > 0
+    ? manifest.commits[manifest.commits.length - 1]
+    : null;
 
-  return `Switched to branch "${branchName}".`;
-}
+   fs.writeFileSync(depJsonPath, JSON.stringify(depJson, null, 2));
+
+   return `Switched to branch "${branchName}". Unstaged changes preserved.`;
+ }
 
 /**
  * Performs a three-way merge. Overwrites working directory with conflicts.
@@ -140,7 +169,7 @@ function merge (targetBranch) {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.7',
+  __libraryVersion: '0.0.8',
   __libraryAPIName: 'Branching',
   branch,
   checkout,

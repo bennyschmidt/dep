@@ -1,12 +1,13 @@
 /**
  * dep - Efficient version control.
- * Module: Caches (v0.0.7)
+ * Module: Caches (v0.0.8)
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const { checkout } = require('../branching/index.js');
+const getStateByHash = require('../utils/getStateByHash');
 
 /**
  * Moves stage.json to a cache folder, or restores the most recent stash.
@@ -15,72 +16,103 @@ const { checkout } = require('../branching/index.js');
  * @returns {string} Result message.
  */
 
-function stash ({ pop = false } = {}) {
-  const depPath = path.join(process.cwd(), '.dep');
-  const stagePath = path.join(depPath, 'stage.json');
-  const cachePath = path.join(depPath, 'cache');
+ function stash ({ pop = false, list = false } = {}) {
+   const root = process.cwd();
+   const depPath = path.join(root, '.dep');
+   const stagePath = path.join(depPath, 'stage.json');
+   const cachePath = path.join(depPath, 'cache');
+   const depJsonPath = path.join(depPath, 'dep.json');
 
-  if (pop) {
-    if (!fs.existsSync(cachePath)) {
-      return 'No stashes found.';
-    }
+   if (list) {
+     if (!fs.existsSync(cachePath)) return [];
 
-    const stashes = fs.readdirSync(cachePath)
-      .filter(f => f.startsWith('stash_') && f.endsWith('.json'))
-      .sort();
+     const stashFiles = fs.readdirSync(cachePath)
+       .filter(f => f.startsWith('stash_') && f.endsWith('.json'))
+       .sort();
 
-    if (stashes.length === 0) {
-      return 'No stashes found.';
-    }
+     const stashList = [];
 
-    const latestStashName = stashes[stashes.length - 1];
-    const latestStashPath = path.join(cachePath, latestStashName);
-    const stashData = JSON.parse(fs.readFileSync(latestStashPath, 'utf8'));
+     for (const [index, file] of stashFiles.entries()) {
+       const ms = file.replace('stash_', '').replace('.json', '');
 
-    let currentStage = { changes: {} };
+       stashList.push({
+         id: `stash@{${stashFiles.length - 1 - index}}`,
+         date: new Date(parseInt(ms)).toLocaleString(),
+         file
+       });
+     }
 
-    if (fs.existsSync(stagePath)) {
-      currentStage = JSON.parse(fs.readFileSync(stagePath, 'utf8'));
-    }
+     return stashList;
+   }
 
-    // Merge stashed changes into current stage and apply to working directory
+   if (pop) {
+     if (!fs.existsSync(cachePath)) throw new Error('No stashes found.');
 
-    for (const [filePath, change] of Object.entries(stashData.changes)) {
-      currentStage.changes[filePath] = change;
+     const stashes = fs.readdirSync(cachePath)
+       .filter(f => f.startsWith('stash_') && f.endsWith('.json'))
+       .sort();
 
-      const fullPath = path.join(process.cwd(), filePath);
+     if (stashes.length === 0) throw new Error('No stashes found.');
 
-      if (change.type === 'createFile' || change.type === 'update') {
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(fullPath, change.content);
-      } else if (change.type === 'deleteFile') {
-        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-      }
-    }
+     const latestStashName = stashes[stashes.length - 1];
+     const latestStashPath = path.join(cachePath, latestStashName);
+     const stashData = JSON.parse(fs.readFileSync(latestStashPath, 'utf8'));
 
-    fs.writeFileSync(stagePath, JSON.stringify(currentStage, null, 2));
-    fs.unlinkSync(latestStashPath);
+     for (const [filePath, change] of Object.entries(stashData.changes)) {
+       const fullPath = path.join(root, filePath);
 
-    return `Dropped ${latestStashName} and updated working directory.`;
-  }
+       if (change.type === 'createFile' || change.type === 'update') {
+         fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+         fs.writeFileSync(fullPath, change.content);
+       } else if (change.type === 'deleteFile') {
+         if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+       }
+     }
 
-  // Standard Stash (Push) logic
+     fs.unlinkSync(latestStashPath);
 
-  if (!fs.existsSync(stagePath)) {
-    return 'No changes to stash.';
-  }
+     return `Restored changes from ${latestStashName}.`;
+   }
 
-  if (!fs.existsSync(cachePath)) {
-    fs.mkdirSync(cachePath, { recursive: true });
-  }
+   const depJson = JSON.parse(fs.readFileSync(depJsonPath, 'utf8'));
+   const activeState = getStateByHash(depJson.active.branch, depJson.active.parent) || {};
 
-  const timestamp = Date.now();
-  const stashFilePath = path.join(cachePath, `stash_${timestamp}.json`);
+   const allWorkDirFiles = fs.readdirSync(root, { recursive: true })
+     .filter(f => !f.startsWith('.dep') && !fs.statSync(path.join(root, f)).isDirectory());
 
-  fs.renameSync(stagePath, stashFilePath);
+   const stashChanges = {};
 
-  return `Saved working directory and index state in stash_${timestamp}`;
-}
+   for (const file of allWorkDirFiles) {
+     const currentContent = fs.readFileSync(path.join(root, file), 'utf8');
+
+     if (currentContent !== activeState[file]) {
+       stashChanges[file] = { type: 'createFile', content: currentContent };
+     }
+   }
+
+   for (const file in activeState) {
+     if (!fs.existsSync(path.join(root, file))) {
+       stashChanges[file] = { type: 'deleteFile' };
+     }
+   }
+
+   if (Object.keys(stashChanges).length === 0) {
+     return 'No local changes to stash.';
+   }
+
+   if (!fs.existsSync(cachePath)) fs.mkdirSync(cachePath, { recursive: true });
+
+   const timestamp = Date.now();
+   const stashFilePath = path.join(cachePath, `stash_${timestamp}.json`);
+
+   fs.writeFileSync(stashFilePath, JSON.stringify({ changes: stashChanges }, null, 2));
+
+   if (fs.existsSync(stagePath)) fs.unlinkSync(stagePath);
+
+   checkout(depJson.active.branch);
+
+   return `Cached working directory changes in stash_${timestamp}.`;
+ }
 
 /**
  * Wipes the stage and moves the active parent pointer if a hash is provided.
@@ -154,7 +186,7 @@ function rm (filePath) {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.7',
+  __libraryVersion: '0.0.8',
   __libraryAPIName: 'Caches',
   stash,
   reset,

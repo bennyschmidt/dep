@@ -1,6 +1,6 @@
 /**
  * dep - Efficient version control.
- * Module: Workflow (v0.0.7)
+ * Module: Workflow (v0.0.8)
  */
 
 const fs = require('fs');
@@ -9,11 +9,11 @@ const crypto = require('crypto');
 
 /**
  * Compares the working directory against the last commit and pending stage.
- * @returns {object} Status object containing branch info and change summaries.
  */
 
-function status () {
-  const depPath = path.join(process.cwd(), '.dep');
+function status() {
+  const root = process.cwd();
+  const depPath = path.join(root, '.dep');
   const depJsonPath = path.join(depPath, 'dep.json');
 
   if (!fs.existsSync(depJsonPath)) {
@@ -21,20 +21,45 @@ function status () {
   }
 
   const depJson = JSON.parse(fs.readFileSync(depJsonPath, 'utf8'));
+  const activeBranch = depJson.active.branch;
   const stagePath = path.join(depPath, 'stage.json');
 
-  let stagedFiles = [];
+  let stagedFiles = {};
 
   if (fs.existsSync(stagePath)) {
-    const stage = JSON.parse(fs.readFileSync(stagePath, 'utf8'));
+    stagedFiles = JSON.parse(fs.readFileSync(stagePath, 'utf8')).changes;
+  }
 
-    stagedFiles = Object.keys(stage.changes);
+  const getStateByHash = require('../utils/getStateByHash');
+  const activeState = getStateByHash(activeBranch, depJson.active.parent) || {};
+
+  const allWorkDirFiles = fs.readdirSync(root, { recursive: true })
+    .filter(f => !f.startsWith('.dep') && !fs.statSync(path.join(root, f)).isDirectory());
+
+  const untracked = [];
+  const modified = [];
+
+  for (const file of allWorkDirFiles) {
+    const isStaged = !!stagedFiles[file];
+    const isActive = !!activeState[file];
+
+    if (!isStaged && !isActive) {
+      untracked.push(file);
+    } else if (!isStaged && isActive) {
+      const currentContent = fs.readFileSync(path.join(root, file), 'utf8');
+
+      if (currentContent !== activeState[file]) {
+        modified.push(file);
+      }
+    }
   }
 
   return {
-    activeBranch: depJson.active.branch,
+    activeBranch,
     lastCommit: depJson.active.parent,
-    staged: stagedFiles
+    staged: Object.keys(stagedFiles),
+    modified,
+    untracked
   };
 }
 
@@ -44,32 +69,55 @@ function status () {
  * @returns {string} Confirmation message.
  */
 
-function add (filePath) {
-  const depPath = path.join(process.cwd(), '.dep');
-  const stagePath = path.join(depPath, 'stage.json');
-  const fullPath = path.join(process.cwd(), filePath);
+ function add(targetPath) {
+   const root = process.cwd();
+   const depPath = path.join(root, '.dep');
+   const stagePath = path.join(depPath, 'stage.json');
+   const fullPath = path.resolve(root, targetPath);
 
-  if (!fs.existsSync(fullPath)) {
-    throw new Error(`Path does not exist: ${filePath}`);
-  }
+   if (!fs.existsSync(fullPath)) {
+     throw new Error(`Path does not exist: ${targetPath}`);
+   }
 
-  let stage = { changes: {} };
+   let stage = { changes: {} };
 
-  if (fs.existsSync(stagePath)) {
-    stage = JSON.parse(fs.readFileSync(stagePath, 'utf8'));
-  }
+   if (fs.existsSync(stagePath)) {
+     stage = JSON.parse(fs.readFileSync(stagePath, 'utf8'));
+   }
 
-  const content = fs.readFileSync(fullPath, 'utf8');
+   const stats = fs.statSync(fullPath);
 
-  stage.changes[filePath] = {
-    type: 'createFile',
-    content: content
-  };
+   let filesToProcess = [];
 
-  fs.writeFileSync(stagePath, JSON.stringify(stage, null, 2));
+   if (stats.isDirectory()) {
+     filesToProcess = fs.readdirSync(fullPath, { recursive: true })
+       .filter(f => {
+         const absoluteF = path.join(fullPath, f);
 
-  return `Added ${filePath} to stage.`;
-}
+         return !fs.statSync(absoluteF).isDirectory() && !absoluteF.includes('.dep');
+       })
+       .map(f => {
+         const absoluteF = path.join(fullPath, f);
+
+         return path.relative(root, absoluteF);
+       });
+   } else {
+     filesToProcess = [path.relative(root, fullPath)];
+   }
+
+   filesToProcess.forEach(relPath => {
+     const content = fs.readFileSync(path.join(root, relPath), 'utf8');
+
+     stage.changes[relPath] = {
+       type: 'createFile',
+       content: content
+     };
+   });
+
+   fs.writeFileSync(stagePath, JSON.stringify(stage, null, 2));
+
+   return `Added ${filesToProcess.length} file(s) to stage.`;
+ }
 
 /**
  * Finalizes the stage into a commit file within the history directory.
@@ -128,7 +176,7 @@ function commit (message) {
 }
 
 module.exports = {
-  __libraryVersion: '0.0.7',
+  __libraryVersion: '0.0.8',
   __libraryAPIName: 'Workflow',
   status,
   add,

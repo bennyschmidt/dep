@@ -2,12 +2,16 @@
 
 /**
  * dep - Efficient version control.
- * CLI (v0.0.7)
+ * CLI (v0.0.8)
  */
 
 const dep = require('../index.js');
 
 const [,, command, ...args] = process.argv;
+
+const RED = '\x1b[31m';
+const GREEN = '\x1b[32m';
+const RESET = '\x1b[0m';
 
 async function run() {
   try {
@@ -28,17 +32,34 @@ async function run() {
         break;
 
       case 'status':
-        const s = dep.status();
+        const {
+          activeBranch,
+          lastCommit,
+          staged,
+          modified,
+          untracked
+        } = dep.status();
 
         console.log(`On branch ${s.activeBranch}`);
         console.log(`Last commit: ${s.lastCommit || 'None'}`);
 
-        if (s.staged.length > 0) {
+        if (staged.length > 0) {
           console.log('\nChanges to be committed:');
+          staged.forEach(f => console.log(`${GREEN}\t${f}${RESET}`));
+        }
 
-          for (const file of s.staged) console.log(`  (staged): ${file}`);
-        } else {
-          console.log('\nNothing staged.');
+        if (modified.length > 0) {
+          console.log('\nChanges not staged for commit:');
+          modified.forEach(f => console.log(`${RED}\tmodified: ${f}${RESET}`));
+        }
+
+        if (untracked.length > 0) {
+          console.log('\nUntracked files:');
+          untracked.forEach(f => console.log(`${RED}\t${f}${RESET}`));
+        }
+
+        if (untracked.length === 0 && modified.length === 0 && staged.length === 0) {
+          console.log('Nothing to commit.');
         }
 
         break;
@@ -57,7 +78,11 @@ async function run() {
         break;
 
       case 'branch':
-        const branches = dep.branch(args[0]);
+        const deleteFlags = ['--delete', '-d', '-D'];
+        const isDelete = deleteFlags.includes(args[0]);
+        const branchName = isDelete ? args[1] : args[0];
+
+        const branches = dep.branch({ name: branchName, del: isDelete });
 
         if (Array.isArray(branches)) {
           for (const b of branches) console.log(b);
@@ -112,8 +137,22 @@ async function run() {
 
       case 'stash':
         const isPop = args[0] === 'pop';
+        const isList = args[0] === 'list';
+        const result = dep.stash({ pop: isPop, list: isList });
 
-        console.log(dep.stash({ pop: isPop }));
+        if (isList && Array.isArray(result)) {
+          if (result.length === 0) {
+            console.log('No stashes found.');
+          } else {
+            console.log('Saved stashes:');
+
+            for (const s of result) {
+              console.log(`${s.id}: WIP on branch: (${s.date})`);
+            }
+          }
+        } else {
+          console.log(result);
+        }
 
         break;
 
