@@ -2,7 +2,7 @@
 
 /**
  * dep - Modern version control.
- * CLI (v0.1.9)
+ * CLI (v0.2.0)
  */
 
 const dep = require('../index.js');
@@ -139,9 +139,9 @@ async function run() {
         break;
 
       case 'diff':
-        const { fileDiffs, staged } = dep.diff();
+        const { fileDiffs, staged: diffStaged } = dep.diff();
 
-        if (fileDiffs.length === 0 && staged.length === 0) {
+        if (fileDiffs.length === 0 && diffStaged.length === 0) {
           console.log('No changes detected.');
 
           break;
@@ -165,9 +165,9 @@ async function run() {
           console.log('');
         }
 
-        if (staged.length > 0) {
+        if (diffStaged.length > 0) {
           console.log('--- Staged Changes ---');
-          staged.forEach(f => console.log(`staged: ${GREEN}${f}${RESET}`));
+          diffStaged.forEach(f => console.log(`staged: ${GREEN}${f}${RESET}`));
         }
 
         break;
